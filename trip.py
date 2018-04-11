@@ -4,6 +4,51 @@ import sys
 import sqlite3
 import json
 
+# create trip.db database
+# contains 2 tables: Activities and ActivityInfo
+DBNAME = 'trip.db'
+
+# init db
+conn = sqlite3.connect(DBNAME)
+cur = conn.cursor()
+
+# Drop tables
+statement1 = '''
+    DROP TABLE IF EXISTS 'Activities';
+'''
+
+statement2 = '''
+    DROP TABLE IF EXISTS 'ActivityInfo';
+'''
+
+cur.execute(statement1)
+cur.execute(statement2)
+
+conn.commit()
+
+query1 = '''
+    CREATE TABLE 'Activities' (
+        'Id' INTEGER PRIMARY KEY AUTOINCREMENT,
+        'State' TEXT,
+        'Attraction' TEXT,
+        'Location' TEXT,
+        'URL' TEXT
+    );
+'''
+
+query2 = '''
+    CREATE TABLE 'ActivityInfo' (
+    'Id' INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+'''
+
+
+cur.execute(query1)
+cur.execute(query2)
+
+conn.commit()
+conn.close()
+
 # Cache STATE ACTIVITIES
 # on startup, try to load the cache from file
 CACHE_FNAME = 'cache.json'
@@ -53,52 +98,29 @@ def make_request_using_cache(url, code):
 
 
 
+# Cache 2
+def make_request_using_cache2(url):
+    unique_ident = url
 
+    ## first, look in the cache to see if we already have this data
+    if unique_ident in CACHE_DICTION:
+        # print("Getting cached data...")
+        return CACHE_DICTION[unique_ident]
 
+    ## if not, fetch the data afresh, add it to the cache,
+    ## then write the cache to file
+    else:
+        # print("Making a request for new data...")
+        # Make the request and cache the new data
 
-# DBNAME = 'trip.db'
-#
-# # init db
-# conn = sqlite3.connect(DBNAME)
-# cur = conn.cursor()
-#
-# # Drop tables
-# statement1 = '''
-#     DROP TABLE IF EXISTS 'Activities';
-# '''
-#
-# statement2 = '''
-#     DROP TABLE IF EXISTS 'ActivityInfo';
-# '''
-#
-# cur.execute(statement1)
-# cur.execute(statement2)
-#
-# conn.commit()
-#
-# query1 = '''
-#     CREATE TABLE 'Activities' (
-#         'Id' INTEGER PRIMARY KEY AUTOINCREMENT,
-#         'State' TEXT,
-#         'Attraction' TEXT,
-#         'Location' TEXT
-#     );
-# '''
-#
-# query2 = '''
-#     CREATE TABLE 'ActivityInfo' (
-#     'Id' INTEGER PRIMARY KEY AUTOINCREMENT
-#     )
-# '''
-#
-#
-# cur.execute(query1)
-# cur.execute(query2)
-#
-# conn.commit()
-# conn.close()
+        resp = requests.get(url)
 
-
+        CACHE_DICTION[unique_ident] = resp.text
+        dumped_json_cache = json.dumps(CACHE_DICTION)
+        fw = open(CACHE_FNAME,"w")
+        fw.write(dumped_json_cache)
+        fw.close() # Close the open file
+        return CACHE_DICTION[unique_ident]
 
 
 # need state code in link to scrape page
@@ -155,58 +177,58 @@ state_code_dict = {
     'Wyoming' : 'g28973'
 }
 
-# activities = []
-# location = []
-#
-# conn = sqlite3.connect(DBNAME)
-# cur = conn.cursor()
-#
-# # TPut state activities into db table
-# for entry in state_code_dict:
-#     url = "https://www.tripadvisor.com/Attractions-" + state_code_dict.get(entry)
-#     html = requests.get(url).text
-#     soup = BeautifulSoup(html, 'html.parser')
-#     todo = soup.find_all(class_='listing_title')
-#     for t in todo:
-#         if t.find('a') is not None:
-#             a = t.find('a').text
-#         else:
-#             a = "None"
-#         if t.find('span') is not None :
-#             l = t.find('span').text
-#         else:
-#             l = "None"
-#         insertion = (None, entry, a, l)
-#         statement = 'INSERT INTO "Activities" '
-#         statement += 'VALUES (?, ?, ?, ?)'
-#         cur.execute(statement, insertion)
-#
-# conn.commit()
-# conn.close()
-
-# for s,a,l in zip(state_code_dict,activities,location):
-#     print(a)
-#     print(l)
-#     insertion = (None, s, a, l)
-#     statement = 'INSERT INTO "Activities" '
-#     statement += 'VALUES (?, ?, ?, ?)'
-#     cur.execute(statement, insertion)
-
-
 class State:
-    def __init__(self, name, attraction, location):
+    def __init__(self, name, attraction, location, url=None):
         self.name = name
         self.attraction = attraction
         self.location = location
+        self.url = url
 
     def __str__(self):
         str_ = self.name + ": " + self.attraction + " in " + self.location
         return str_
 
+class Activity:
+    def __init__(self, title, type, rating, num_reviews):
+        self.title = title
+        self.type = type
+        self.rating = rating
+        self.num_reviews = num_reviews
 
 
-activities = []
-def get_activities_for_state(state):
+
+conn = sqlite3.connect(DBNAME)
+cur = conn.cursor()
+
+def get_activities(state) :
+    activities = []
+    statement = '''
+    SELECT State, Attraction, Location, URL
+    FROM Activities
+    WHERE State = '''
+    statement += "'" + state + "'"
+    cur.execute(statement)
+    if cur.fetchone() is not None:
+        cur.execute(statement)
+        for row in cur:
+            place = State(row[0], row[1], row[2], row[3])
+            activities.append(place)
+    else:
+        put_in_database(state)
+        query = '''
+        SELECT State, Attraction, Location, URL
+        FROM Activities
+        WHERE State = '''
+        query += "'" + state + "'"
+        cur.execute(query)
+        for row in cur:
+            place = State(row[0], row[1], row[2], row[3])
+            activities.append(place)
+
+    return activities
+
+
+def put_in_database(state):
     baseurl = 'https://www.tripadvisor.com/Attractions-'
     state_code = state_code_dict[state]
     full_url = baseurl + state_code
@@ -218,14 +240,28 @@ def get_activities_for_state(state):
             a = t.find('a').text
         else:
             a = "None"
+        url = "https://www.tripadvisor.com" + t.find('a')['href']
         if t.find('span') is not None :
             l = t.find('span').text
         else:
             l = "None"
+        insertion = (None, state, a, l, url)
+        statement = 'INSERT INTO "Activities" '
+        statement += 'VALUES (?, ?, ?, ?, ?)'
+        cur.execute(statement, insertion)
+    conn.commit()
 
-        place = State(state, a, l)
-        activities.append(place)
-    return activities
+
+def get_more_info(state_obj):
+
+    url = state_obj.url
+    resp = make_request_using_cache2(url)
+
+    soup = BeautifulSoup(resp, 'html.parser')
+    types = soup.find_all(class_="detail")
+    for t in types:
+        attraction = Activity(state_obj.title, t.text)
+
 
 if __name__ == "__main__":
     entered = input('Enter command (or "help" for options): ')
@@ -237,12 +273,22 @@ if __name__ == "__main__":
             print("Bye!")
 
         elif command == "activities":
-            all_activities = get_activities_for_state(entered[1])
+            all_activities = get_activities(entered[1])
             count = 1
             print("Activities in " + entered[1] + "\n")
             for a in all_activities:
                 print(str(count) + " " + str(a))
                 count = count + 1
+
+        elif command == "more":
+            # count = 1
+            # print("More information about " + activities[int(entered[1]) - 1].name)
+            # if len(activities) is not 0:
+            #     info = get_more_info(activities[int(entered[1]) - 1])
+            #     for i in info:
+            #         print(str(count) + " " + str(i))
+            #         count = count + 1
+            get_more_info(activities[int(entered[1]) - 1])
 
         else:
             print("Bad input :( try again!")
