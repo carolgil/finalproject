@@ -99,28 +99,28 @@ def make_request_using_cache(url, code):
 
 
 # Cache 2
-def make_request_using_cache2(url):
-    unique_ident = url
-
-    ## first, look in the cache to see if we already have this data
-    if unique_ident in CACHE_DICTION:
-        # print("Getting cached data...")
-        return CACHE_DICTION[unique_ident]
-
-    ## if not, fetch the data afresh, add it to the cache,
-    ## then write the cache to file
-    else:
-        # print("Making a request for new data...")
-        # Make the request and cache the new data
-
-        resp = requests.get(url)
-
-        CACHE_DICTION[unique_ident] = resp.text
-        dumped_json_cache = json.dumps(CACHE_DICTION)
-        fw = open(CACHE_FNAME,"w")
-        fw.write(dumped_json_cache)
-        fw.close() # Close the open file
-        return CACHE_DICTION[unique_ident]
+# def make_request_using_cache2(url):
+#     unique_ident = url
+#
+#     ## first, look in the cache to see if we already have this data
+#     if unique_ident in CACHE_DICTION:
+#         # print("Getting cached data...")
+#         return CACHE_DICTION[unique_ident]
+#
+#     ## if not, fetch the data afresh, add it to the cache,
+#     ## then write the cache to file
+#     else:
+#         # print("Making a request for new data...")
+#         # Make the request and cache the new data
+#
+#         resp = requests.get(url)
+#
+#         CACHE_DICTION[unique_ident] = resp.text
+#         dumped_json_cache = json.dumps(CACHE_DICTION)
+#         fw = open(CACHE_FNAME,"w")
+#         fw.write(dumped_json_cache)
+#         fw.close() # Close the open file
+#         return CACHE_DICTION[unique_ident]
 
 
 # need state code in link to scrape page
@@ -196,74 +196,69 @@ class Activity:
         self.num_reviews = num_reviews
 
 
-
 conn = sqlite3.connect(DBNAME)
 cur = conn.cursor()
 
+
 def get_activities(state) :
     activities = []
-    statement = '''
+    query = '''
     SELECT State, Attraction, Location, URL
     FROM Activities
     WHERE State = '''
-    statement += "'" + state + "'"
-    cur.execute(statement)
-    if cur.fetchone() is not None:
-        cur.execute(statement)
-        for row in cur:
-            place = State(row[0], row[1], row[2], row[3])
-            activities.append(place)
-    else:
-        put_in_database(state)
-        query = '''
-        SELECT State, Attraction, Location, URL
-        FROM Activities
-        WHERE State = '''
-        query += "'" + state + "'"
-        cur.execute(query)
-        for row in cur:
-            place = State(row[0], row[1], row[2], row[3])
-            activities.append(place)
+    query += "'" + state + "'"
+    cur.execute(query)
+    for row in cur:
+        place = State(row[0], row[1], row[2], row[3])
+        activities.append(place)
 
     return activities
 
 
-def put_in_database(state):
-    baseurl = 'https://www.tripadvisor.com/Attractions-'
-    state_code = state_code_dict[state]
-    full_url = baseurl + state_code
-    page_text = make_request_using_cache(baseurl, state_code)
-    soup = BeautifulSoup(page_text, 'html.parser')
-    todo = soup.find_all(class_='listing_title')
-    for t in todo:
-        if t.find('a') is not None:
-            a = t.find('a').text
-        else:
-            a = "None"
-        url = "https://www.tripadvisor.com" + t.find('a')['href']
-        if t.find('span') is not None :
-            l = t.find('span').text
-        else:
-            l = "None"
-        insertion = (None, state, a, l, url)
-        statement = 'INSERT INTO "Activities" '
-        statement += 'VALUES (?, ?, ?, ?, ?)'
-        cur.execute(statement, insertion)
+def init_db():
+    for state in state_code_dict:
+        baseurl = 'https://www.tripadvisor.com/Attractions-'
+        state_code = state_code_dict[state]
+        full_url = baseurl + state_code
+        page_text = make_request_using_cache(baseurl, state_code)
+        soup = BeautifulSoup(page_text, 'html.parser')
+        todo = soup.find_all(class_='listing_title')
+        count = 0
+        for t in todo:
+            if count < 3:
+                if t.find('a') is not None:
+                    a = t.find('a').text
+                else:
+                    a = "None"
+                url = "https://www.tripadvisor.com" + t.find('a')['href']
+                if t.find('span') is not None :
+                    l = t.find('span').text
+                else:
+                    l = "None"
+                insertion = (None, state, a, l, url)
+                statement = 'INSERT INTO "Activities" '
+                statement += 'VALUES (?, ?, ?, ?, ?)'
+                cur.execute(statement, insertion)
+                count = count + 1
+            else:
+                break
     conn.commit()
 
 
-def get_more_info(state_obj):
-
-    url = state_obj.url
-    resp = make_request_using_cache2(url)
-
-    soup = BeautifulSoup(resp, 'html.parser')
-    types = soup.find_all(class_="detail")
-    for t in types:
-        attraction = Activity(state_obj.title, t.text)
+# def get_more_info(state_obj):
+#
+#     url = state_obj.url
+#     resp = make_request_using_cache2(url)
+#
+#     soup = BeautifulSoup(resp, 'html.parser')
+#     types = soup.find_all(class_="detail")
+#     for t in types:
+#         attraction = Activity(state_obj.title, t.text)
 
 
 if __name__ == "__main__":
+    init_db()
+
     entered = input('Enter command (or "help" for options): ')
     entered = entered.split()
     command = entered[0]
@@ -275,21 +270,21 @@ if __name__ == "__main__":
         elif command == "activities":
             all_activities = get_activities(entered[1])
             count = 1
-            print("Activities in " + entered[1] + "\n")
+            print("Top Three Activities in " + entered[1] + "\n")
             for a in all_activities:
                 print(str(count) + " " + str(a))
                 count = count + 1
-
-        elif command == "more":
-            # count = 1
-            # print("More information about " + activities[int(entered[1]) - 1].name)
-            # if len(activities) is not 0:
-            #     info = get_more_info(activities[int(entered[1]) - 1])
-            #     for i in info:
-            #         print(str(count) + " " + str(i))
-            #         count = count + 1
-            get_more_info(activities[int(entered[1]) - 1])
-
+    #
+    #     elif command == "more":
+    #         # count = 1
+    #         # print("More information about " + activities[int(entered[1]) - 1].name)
+    #         # if len(activities) is not 0:
+    #         #     info = get_more_info(activities[int(entered[1]) - 1])
+    #         #     for i in info:
+    #         #         print(str(count) + " " + str(i))
+    #         #         count = count + 1
+    #         get_more_info(activities[int(entered[1]) - 1])
+    #
         else:
             print("Bad input :( try again!")
 
