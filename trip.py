@@ -38,8 +38,12 @@ query1 = '''
 
 query2 = '''
     CREATE TABLE 'ActivityInfo' (
-    'Id' INTEGER PRIMARY KEY AUTOINCREMENT
-    )
+    'Id' INTEGER PRIMARY KEY AUTOINCREMENT,
+    'Title' TEXT,
+    'Type' TEXT,
+    'Rating' INTEGER,
+    'NumReviews' INTEGER
+    );
 '''
 
 
@@ -52,6 +56,7 @@ conn.close()
 # Cache STATE ACTIVITIES
 # on startup, try to load the cache from file
 CACHE_FNAME = 'cache.json'
+CACHE_FNAME2 = 'cache2.json'
 try:
     cache_file = open(CACHE_FNAME, 'r')
     cache_contents = cache_file.read()
@@ -61,6 +66,16 @@ try:
 # if there was no file, no worries. There will be soon!
 except:
     CACHE_DICTION = {}
+
+try:
+    cache_file = open(CACHE_FNAME2, 'r')
+    cache_contents = cache_file.read()
+    CACHE_DICTION2 = json.loads(cache_contents)
+    cache_file.close()
+
+# if there was no file, no worries. There will be soon!
+except:
+    CACHE_DICTION2 = {}
 
 def get_unique_key(url, code):
     full_url = url + code
@@ -99,28 +114,28 @@ def make_request_using_cache(url, code):
 
 
 # Cache 2
-# def make_request_using_cache2(url):
-#     unique_ident = url
-#
-#     ## first, look in the cache to see if we already have this data
-#     if unique_ident in CACHE_DICTION:
-#         # print("Getting cached data...")
-#         return CACHE_DICTION[unique_ident]
-#
-#     ## if not, fetch the data afresh, add it to the cache,
-#     ## then write the cache to file
-#     else:
-#         # print("Making a request for new data...")
-#         # Make the request and cache the new data
-#
-#         resp = requests.get(url)
-#
-#         CACHE_DICTION[unique_ident] = resp.text
-#         dumped_json_cache = json.dumps(CACHE_DICTION)
-#         fw = open(CACHE_FNAME,"w")
-#         fw.write(dumped_json_cache)
-#         fw.close() # Close the open file
-#         return CACHE_DICTION[unique_ident]
+def make_request_using_cache2(url):
+    unique_ident = url
+
+    ## first, look in the cache to see if we already have this data
+    if unique_ident in CACHE_DICTION2:
+        # print("Getting cached data...")
+        return CACHE_DICTION2[unique_ident]
+
+    ## if not, fetch the data afresh, add it to the cache,
+    ## then write the cache to file
+    else:
+        # print("Making a request for new data...")
+        # Make the request and cache the new data
+
+        resp = requests.get(url)
+
+        CACHE_DICTION2[unique_ident] = resp.text
+        dumped_json_cache = json.dumps(CACHE_DICTION2)
+        fw = open(CACHE_FNAME2,"w")
+        fw.write(dumped_json_cache)
+        fw.close() # Close the open file
+        return CACHE_DICTION2[unique_ident]
 
 
 # need state code in link to scrape page
@@ -200,20 +215,6 @@ conn = sqlite3.connect(DBNAME)
 cur = conn.cursor()
 
 
-def get_activities(state) :
-    activities = []
-    query = '''
-    SELECT State, Attraction, Location, URL
-    FROM Activities
-    WHERE State = '''
-    query += "'" + state + "'"
-    cur.execute(query)
-    for row in cur:
-        place = State(row[0], row[1], row[2], row[3])
-        activities.append(place)
-
-    return activities
-
 
 def init_db():
     for state in state_code_dict:
@@ -240,24 +241,37 @@ def init_db():
                 statement += 'VALUES (?, ?, ?, ?, ?)'
                 cur.execute(statement, insertion)
                 count = count + 1
+                text = make_request_using_cache2(url)
+                ramen = BeautifulSoup(text, 'html.parser')
+                detail = ramen.find_all(class_='detail')
+                popularity = ramen.find_all(class_='header_popularity')
+                reviews = ramen.find_all(class_='header_rating')
+                for d,p,r in zip(detail,popularity,reviews):
+                    if d.find('a') is not None:
+                        type = d.find('a').text
+                    else:
+                        type = "None"
+                    if p.find('span') is not None:
+                        rating = p.find('span').text[1:]
+                    else:
+                        rating = 0
+                    rev = r.find('a')
+                    if rev.find('span') is not None:
+                        num_reviews = rev.find('span').text
+                    else:
+                        num_reviews = 0
+                insert = (None, a, type, rating, num_reviews)
+                statement = 'INSERT INTO "ActivityInfo" '
+                statement += 'VALUES (?, ?, ?, ?, ?)'
+                cur.execute(statement, insert)
             else:
                 break
     conn.commit()
 
 
-# def get_more_info(state_obj):
-#
-#     url = state_obj.url
-#     resp = make_request_using_cache2(url)
-#
-#     soup = BeautifulSoup(resp, 'html.parser')
-#     types = soup.find_all(class_="detail")
-#     for t in types:
-#         attraction = Activity(state_obj.title, t.text)
-
 
 if __name__ == "__main__":
-    init_db()
+    # init_db()
 
     entered = input('Enter command (or "help" for options): ')
     entered = entered.split()
@@ -267,24 +281,11 @@ if __name__ == "__main__":
         if command == "exit" :
             print("Bye!")
 
-        elif command == "activities":
-            all_activities = get_activities(entered[1])
-            count = 1
-            print("Top Three Activities in " + entered[1] + "\n")
-            for a in all_activities:
-                print(str(count) + " " + str(a))
-                count = count + 1
-    #
-    #     elif command == "more":
-    #         # count = 1
-    #         # print("More information about " + activities[int(entered[1]) - 1].name)
-    #         # if len(activities) is not 0:
-    #         #     info = get_more_info(activities[int(entered[1]) - 1])
-    #         #     for i in info:
-    #         #         print(str(count) + " " + str(i))
-    #         #         count = count + 1
-    #         get_more_info(activities[int(entered[1]) - 1])
-    #
+        # FIRST GRAPH
+        # creates bar chart of activity rankings in state specified
+        elif command == "rankings":
+            pass
+
         else:
             print("Bad input :( try again!")
 
